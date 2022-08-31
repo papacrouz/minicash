@@ -83,10 +83,10 @@ class Ledger:
             for amt in [2**i for i in range(20)]
         }
 
-    def mint(self, B_):
-        """Mints a promise for 64 coins for B_."""
+    def mint(self, B_, nCoins):
+        """Mints a promise for nCoins coins for B_."""
         # NOTE: This could be implemented that a mint requires a rare pow
-        return self._generate_promise(64, B_)
+        return self._generate_promise(nCoins, B_)
 
     def split(self, proofs, amount, output_data):
         """Consumes proofs and prepares new promises based on the amount split."""

@@ -18,7 +18,7 @@ Example of interaction is in run_example.py and can be tested with `python3 run_
 
 The API contains only three endpoints:
 * `/keys` - used to communicate the public keys for each amount variant.
-* `/mint` - used for minting new coins. It returns a promise for 64 coins.
+* `/mint` - used for minting new coins. It returns a promise for nCoins coins.
 * `/split` - consumes proofs of promise and creates new promises based on the split amount.
 
 **_NOTE: A serious implementation should at least include wallet level locking to avoid race conditioning updates as well as atomic guarantees in the split function._**

@@ -46,11 +46,11 @@ class LedgerAPI:
             })
         return proofs
 
-    def mint(self):
+    def mint(self, nCoins):
         """Mints new coins and returns a proof of promise."""
         secret_msg = str(random.getrandbits(128))
         B_, r = b_dhke.step1_bob(secret_msg)
-        promise = requests.post(self.url + "/mint", json={"x": str(B_.x), "y": str(B_.y)}).json()
+        promise = requests.post(self.url + "/mint", json={"x": str(B_.x), "y": str(B_.y),  "C": str(nCoins)}).json()
         return self._construct_proofs([promise], [(r, secret_msg)])[0]
 
     def split(self, proofs, amount):
@@ -94,8 +94,8 @@ class Wallet(LedgerAPI):
         super().__init__(url)
         self.proofs = []
 
-    def mint(self):
-        proof = super().mint()
+    def mint(self, nCoins=64):
+        proof = super().mint(nCoins)
         self.proofs.append(proof)
         return proof
 
