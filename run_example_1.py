@@ -23,22 +23,24 @@ if wallet.balance() < 10:
 
 # Check wallet from proofs, that match the 
 # amount that we want to promise 
-proof_to_use = {'amount': 16, 'C': {'x': 104231405475812805295267020412229911895093669907645220826920292818674789415557, 'y': 17812879564828261427180728180516621883250163736840666671820313778758091220839}, 'secret_msg': b'231781215337983755330619246775596113824'}
+proof_to_use = None 
 
+for proof in wallet.proofs:
+	if proof["amount"] >= 10:
+		proof_to_use = proof 
+		break 
 
-
-"""print(proof_to_use)
 
 print("")
 
 print("[*] Proof to use for a promise to Alice for 10 coins contains {} coins\n".format(proof_to_use["amount"]))
 
 
-print("")"""
+print("")
 
 our_proofs, alice_proofs = wallet.split([proof_to_use], 10)
 
-"""print("[*] After prommising 10 coins to Alice, we end with bellow proofs")
+print("[*] After prommising 10 coins to Alice, we end with bellow proofs")
 
 for t in our_proofs:
 	print("")
@@ -56,7 +58,7 @@ print("[*] Alice ends with the bellow proofs")
 for t in alice_proofs:
 	print("")
 	print(t)
-"""
+
 
 print("[*] Alice balance {}".format(sum(p["amount"] for p in alice_proofs)))
 
