@@ -5,31 +5,62 @@ from wallet import Wallet
 
 SERVER_ENDPOINT = "http://localhost:5000"
 wallet = Wallet(SERVER_ENDPOINT)
-print("Balance before mint: {}".format(wallet.balance()))
+
+# load proofs from database in memory  
+wallet.load_proofs()
+
+if len(wallet.proofs) > 0:
+	print("{} Proofs loaded from db".format(len(wallet.proofs)))
 
 # Mint a proof of promise. We obtain a proof for 16 coins
-proof = wallet.mint(16)
-print("Bob Balance after mint: {}".format(wallet.balance()))
+wallet.mint(16)
+
+# Assume that we to promise 10 coins to alice
+# be sure that we have enough balance 
+if wallet.balance() < 10:
+	print("Not enough coins")
+
+
+# Check wallet from proofs, that match the 
+# amount that we want to promise 
+proof_to_use = None 
+
+for proof in wallet.proofs:
+	if proof["amount"] >= 10:
+		proof_to_use = proof 
+		break 
+
+
+print("")
+
+print("[*] Proof to use for a promise to Alice for 10 coins contains {} coins\n".format(proof_to_use["amount"]))
+
+
+print("")
+
+our_proofs, alice_proofs = wallet.split([proof_to_use], 10)
+
+print("[*] After prommising 10 coins to Alice, we end with bellow proofs")
+
+for t in our_proofs:
+	print("")
+	print(t)
+
+
+print("")
+print("[*] Our proof remaining balance {}\n".format(sum(p["amount"] for p in our_proofs)))
 
 
 
-# Assume that bob to send 3 coins to alice 
-# bob split the 16 coins proof that he mint 
-# above, based on amount that he wants want to 
-# send to alice 
 
-bob_proofs, alice_proofs = wallet.split([proof], 3)
-# bob_proofs = [1, 4, 8] = 13 coins balance 
-# alice_proofs = [1, 2] = 3 coins balance
-# bob_proofs + alice_proofs = 16 coins 
-print("Bob balance after send 3 coins to Alice: {}".format(sum(p["amount"] for p in bob_proofs)))
-print("Alice balance: {}".format(sum(p["amount"] for p in alice_proofs)))
+print("[*] Alice ends with the bellow proofs")
+
+for t in alice_proofs:
+	print("")
+	print(t)
 
 
-# Alice spend 2 coin's to john of its 3
-alice_proofs, john_proofs = wallet.split(alice_proofs, 2)
-# alice_proofs = [1] = 1 coins balance 
-# john_proofs = [2] = 2 coins balance
-# alice_proofs + john_proofs = 3 coins, that bob sends to alice. 
-print("Alice balance after send 2 coins to john: {}".format(sum(p["amount"] for p in alice_proofs)))
-print("John balance: {}".format(sum(p["amount"] for p in john_proofs)))
+print("[*] Alice balance {}".format(sum(p["amount"] for p in alice_proofs)))
+
+
+

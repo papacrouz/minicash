@@ -1,10 +1,13 @@
 # Don't trust me with cryptography.
 
 import random
+import hashlib
 
 import requests
 from ecc.curve import secp256k1, Point
 import b_dhke
+from proof_util import proof_serialize, proof_deserialize
+import lmdb
 
 
 class LedgerAPI:
@@ -94,9 +97,23 @@ class Wallet(LedgerAPI):
         super().__init__(url)
         self.proofs = []
 
+        self.env = lmdb.open('wallet.lmdb', max_dbs=10)
+        self.proof_db = self.env.open_db(b'proofs')
+
     def mint(self, nCoins=64):
         proof = super().mint(nCoins)
+
+        # add proof on memory, runtime.
         self.proofs.append(proof)
+        # store proof on database
+
+        serialsed = proof_serialize(proof)
+        index = hashlib.sha256(serialsed).hexdigest().encode()
+
+        key = b"proof:" + index
+        with self.env.begin(write=True) as txn:
+            txn.put(key, serialsed, db=self.proof_db) 
+
         return proof
 
     def split(self, proofs, amount):
@@ -114,3 +131,13 @@ class Wallet(LedgerAPI):
 
     def proof_amounts(self):
         return [p["amount"] for p in sorted(self.proofs, key=lambda p: p["amount"])]
+
+    def load_proofs(self):
+        # load proofs on memory 
+        with self.env.begin() as txn:
+             for key, value in txn.cursor(self.proof_db):
+                index = key.split(b":")
+                if index[0] == b"proof":
+                    constructed_proof = proof_deserialize(value)
+                    self.proofs.append(constructed_proof)
+        return True
