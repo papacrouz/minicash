@@ -1,6 +1,7 @@
 # Don't trust me with cryptography.
 
 from wallet import Wallet
+import sys
 
 
 SERVER_ENDPOINT = "http://localhost:5000"
@@ -38,7 +39,9 @@ print("[*] Proof to use for a promise to Alice for 10 coins contains {} coins\n"
 
 print("")
 
-our_proofs, alice_proofs = wallet.split([proof_to_use], 10)
+our_proofs, alice_proofs, success = wallet.split([proof_to_use], 10)
+if not success:
+	sys.exit()
 
 print("[*] After prommising 10 coins to Alice, we end with bellow proofs")
 
