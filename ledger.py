@@ -10,6 +10,7 @@ from ecc.curve import secp256k1, Point
 from ecc.key import gen_keypair
 
 import b_dhke
+import lmdb
 
 
 class Ledger:
@@ -17,6 +18,9 @@ class Ledger:
         self.master_key = secret_key
         self.used_proofs = set()  # no promise proofs have been used
         self.keys = self._derive_keys(self.master_key)
+        self.env = lmdb.open('proofs.lmdb', max_dbs=10)
+        self.used_proof_db = self.env.open_db(b'used_proofs')
+
 
     @staticmethod
     def _derive_keys(master_key):
@@ -111,4 +115,28 @@ class Ledger:
         outs_snd = self._get_output_split(amount)
         B_fst = [od["B'"] for od in output_data[:len(outs_fst)]]
         B_snd = [od["B'"] for od in output_data[len(outs_fst):]]
+
+        # store used proofs on db 
+
+        for proof in proof_msgs:
+            index = hashlib.sha256(proof.encode()).hexdigest().encode()
+            key = b"usedproof:" + index
+            with self.env.begin(write=True) as txn:
+                txn.put(key, proof.encode(), db=self.used_proof_db)
+
+
         return self._generate_promises(outs_fst, B_fst), self._generate_promises(outs_snd, B_snd)
+
+
+    def load_ledger(self):
+        # load used proofs on memory 
+        db_used = []
+        with self.env.begin() as txn:
+             for key, value in txn.cursor(self.used_proof_db):
+                index = key.split(b":")
+                if index[0] == b"usedproof":
+                    db_used.append(value.decode())
+
+        used_proofs = set([proof for proof in db_used])
+        self.used_proofs |= used_proofs
+        return True

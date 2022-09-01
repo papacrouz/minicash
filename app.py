@@ -9,6 +9,10 @@ from ledger import Ledger
 
 # Ledger pubkey
 ledger = Ledger("supersecretprivatekey")
+ledger.load_ledger()
+
+if len(ledger.used_proofs) > 0:
+    print("{} used proofs loaded from ledger db".format(len(ledger.used_proofs)))
 
 app = Flask(__name__)
 
