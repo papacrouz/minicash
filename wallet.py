@@ -82,13 +82,13 @@ class LedgerAPI:
         }).json()
         if "error" in promises:
             print("Failure: {}".format(promises["error"]))
-            return [], []
+            return [], [], False
 
         # Obtain proofs from promises
         fst_proofs = self._construct_proofs(promises["fst"], secrets[:len(promises["fst"])])
         snd_proofs = self._construct_proofs(promises["snd"], secrets[len(promises["fst"]):])
 
-        return fst_proofs, snd_proofs
+        return fst_proofs, snd_proofs, True
 
 
 class Wallet(LedgerAPI):
@@ -96,6 +96,7 @@ class Wallet(LedgerAPI):
     def __init__(self, url):
         super().__init__(url)
         self.proofs = []
+        self.used_proofs = []
 
         self.env = lmdb.open('wallet.lmdb', max_dbs=10)
         self.proof_db = self.env.open_db(b'proofs')
@@ -117,11 +118,35 @@ class Wallet(LedgerAPI):
         return proof
 
     def split(self, proofs, amount):
-        fst_proofs, snd_proofs = super().split(proofs, amount)
+        fst_proofs, snd_proofs, success = super().split(proofs, amount)
+
+        if not success:
+            return [], [], False
         used_secret_msgs = [p["secret_msg"] for p in proofs]
         self.proofs = list(filter(lambda p: p["secret_msg"] not in used_secret_msgs, self.proofs))
-        self.proofs += fst_proofs + snd_proofs
-        return fst_proofs, snd_proofs
+        self.proofs += fst_proofs
+
+        # As author notes the split function consumes proofs of promise 
+        # and creates new promises based on the split amount.
+
+
+        # After a split we may end with a new proof of promise's
+        # store new proofs of promise's on db.
+        for proof in fst_proofs:
+            serialsed = proof_serialize(proof)
+            index = hashlib.sha256(serialsed).hexdigest().encode()
+            key = b"proof:" + index
+            with self.env.begin(write=True) as txn:
+                txn.put(key, serialsed, db=self.proof_db) 
+
+        # Mark consumed proofs of promise as used. 
+        for used_secret in used_secret_msgs:
+            index = hashlib.sha256(used_secret.encode()).hexdigest().encode()
+            key = b"usedproof:" + index
+            with self.env.begin(write=True) as txn:
+                txn.put(key, used_secret.encode(), db=self.proof_db) 
+
+        return fst_proofs, snd_proofs, True
 
     def balance(self):
         return sum(p["amount"] for p in self.proofs)
@@ -140,4 +165,14 @@ class Wallet(LedgerAPI):
                 if index[0] == b"proof":
                     constructed_proof = proof_deserialize(value)
                     self.proofs.append(constructed_proof)
+                if index[0] == b"usedproof":
+                    self.used_proofs.append(value)
+
+     
+        all_ = self.proofs
+        self.proofs = []
+        for proof in all_:
+            if not proof["secret_msg"] in self.used_proofs:
+                self.proofs.append(proof)
+
         return True
