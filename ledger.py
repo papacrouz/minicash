@@ -92,11 +92,25 @@ class Ledger:
         # NOTE: This could be implemented that a mint requires a rare pow
         return self._generate_promise(nCoins, B_)
 
-    def split(self, proofs, amount, output_data):
+    def split(self, proofs, amount, output_data, secrets):
         """Consumes proofs and prepares new promises based on the amount split."""
         # Verify proofs are valid
+
         if not all([self._verify_proof(p) for p in proofs]):
             return False
+
+
+        # get the hashed secrete msg for each prrof 
+        proof_msgs = set([p["secret_msg"] for p in proofs])
+
+
+        # does client have the correct secret's ?
+        for secret in secrets:
+            hashed_secrete = hashlib.sha256(secret.encode()).hexdigest()
+            if not hashed_secrete in proof_msgs:
+                raise Exception("Secrete calculation mistatch. Do you know the secrete?.")
+                return False
+
 
         total = sum([p["amount"] for p in proofs])
 
@@ -126,6 +140,10 @@ class Ledger:
 
 
         return self._generate_promises(outs_fst, B_fst), self._generate_promises(outs_snd, B_snd)
+
+
+
+
 
 
     def load_ledger(self):

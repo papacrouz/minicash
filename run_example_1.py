@@ -64,6 +64,3 @@ for t in alice_proofs:
 
 
 print("[*] Alice balance {}".format(sum(p["amount"] for p in alice_proofs)))
-
-
-

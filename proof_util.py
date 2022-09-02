@@ -27,5 +27,5 @@ def proof_deserialize(proof):
 	amount = deser_str(f)
 	secret = deser_str(f)
     # construct 
-	proof = {'amount': int(amount), 'C': {'x': int(x), 'y': int(y)}, 'secret_msg': secret}
+	proof = {'amount': int(amount), 'C': {'x': int(x), 'y': int(y)}, 'secret_msg': secret.decode()}
 	return proof
