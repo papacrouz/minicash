@@ -10,35 +10,21 @@ wallet = Wallet(SERVER_ENDPOINT)
 # load proofs from database in memory  
 wallet.load_proofs()
 
-if len(wallet.proofs) > 0:
-	print("{} Proofs loaded from db".format(len(wallet.proofs)))
-
-# Mint a proof of promise. We obtain a proof for 16 coins
-
-# Assume that we want to promise 10 coins to alice
-# be sure that we have enough balance 
-if wallet.balance() < 2:
-	print("Not enough coins")
+wallet.mint(16)
 
 
 # Check wallet from proofs, that match the 
 # amount that we want to promise 
-proof_to_use = None 
+total = 0 
+proof_to_use = [] 
 
-for proof in wallet.proofs:
-	if proof["amount"] >= 2:
-		proof_to_use = proof 
-		break 
-
-
-print("")
-
-print("[*] Proof to use for a promise to Alice for 10 coins contains {} coins\n".format(proof_to_use["amount"]))
+while total < 10:
+	for proof in wallet.proofs:
+		proof_to_use.append(proof)
+		total += proof["amount"]
 
 
-print("")
-
-our_proofs, alice_proofs, success = wallet.split([proof_to_use], 2)
+our_proofs, alice_proofs, success = wallet.split(proof_to_use, 10)
 if not success:
 	sys.exit()
 
@@ -50,7 +36,7 @@ for t in our_proofs:
 
 
 print("")
-print("[*] Our proof remaining balance {}\n".format(sum(p["amount"] for p in our_proofs)))
+print("[*] Our proof remaining balance {}\n".format(wallet.balance()))
 
 
 
