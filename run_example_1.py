@@ -14,11 +14,10 @@ if len(wallet.proofs) > 0:
 	print("{} Proofs loaded from db".format(len(wallet.proofs)))
 
 # Mint a proof of promise. We obtain a proof for 16 coins
-wallet.mint(16)
 
 # Assume that we want to promise 10 coins to alice
 # be sure that we have enough balance 
-if wallet.balance() < 10:
+if wallet.balance() < 2:
 	print("Not enough coins")
 
 
@@ -27,7 +26,7 @@ if wallet.balance() < 10:
 proof_to_use = None 
 
 for proof in wallet.proofs:
-	if proof["amount"] >= 10:
+	if proof["amount"] >= 2:
 		proof_to_use = proof 
 		break 
 
@@ -39,7 +38,7 @@ print("[*] Proof to use for a promise to Alice for 10 coins contains {} coins\n"
 
 print("")
 
-our_proofs, alice_proofs, success = wallet.split([proof_to_use], 10)
+our_proofs, alice_proofs, success = wallet.split([proof_to_use], 2)
 if not success:
 	sys.exit()
 

@@ -248,7 +248,7 @@ class Wallet(LedgerAPI):
         index = hashlib.sha256(str(proof).encode()).hexdigest().encode()
         if not index in self.proofs_secrets:
             return False 
-        return "hello"
+        return self.proofs_secrets[index]
 
 
     def load_proofs(self):
