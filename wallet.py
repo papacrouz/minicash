@@ -9,6 +9,9 @@ import b_dhke
 from proof_util import proof_serialize, proof_deserialize
 import lmdb
 
+from walletdb import WalletDB, CWalletExtDB
+import baseutil
+import context
 
 class LedgerAPI:
     def __init__(self, url):
@@ -103,7 +106,7 @@ class LedgerAPI:
     
             secret_msg = str(random.getrandbits(128))
             # hash the secret
-            secret_msg_hashed = hashlib.sha256(secret_msg.encode()).hexdigest()
+            secret_msg_hashed = baseutil.Hash(secret_msg)
 
             B_, r = b_dhke.step1_bob(secret_msg_hashed)
 
@@ -141,45 +144,33 @@ class Wallet(LedgerAPI):
     """Minimal wallet wrapper."""
     def __init__(self, url):
         super().__init__(url)
-        self.proofs = []
-        self.used_proofs = []
-        self.proofs_secrets = {}
-
-        self.env = lmdb.open('wallet.lmdb', max_dbs=10)
-        self.proof_db = self.env.open_db(b'proofs')
+  
+       
 
     def mint(self, nCoins=64):
         proof, secret_msg = super().mint(nCoins)
 
         # add proof on memory, runtime.
-        self.proofs.append(proof)
+        context.proofs.append(proof)
 
 
-        # store proof on database
-        serialsed = proof_serialize(proof)
-        index = hashlib.sha256(serialsed).hexdigest().encode()
-        
+        with WalletDB() as walletdb:
+            walletdb.WriteProof(proof)
 
-        key = b"proof:" + index
-        with self.env.begin(write=True) as txn:
-            txn.put(key, serialsed, db=self.proof_db) 
 
 
         # the proof of promise received by the server, cointains the secrete message hashed.
         # so when when we want to split the newly mint proof, we have to provide a pattern than 
         # hash to proof secrete message.
 
-        index = hashlib.sha256(str(proof).encode()).hexdigest().encode()
+        index = baseutil.Hash(proof).encode()
 
 
         # store the plaintext secrete message on memory 
-        self.proofs_secrets[index] = secret_msg
+        context.proofs_secrets[index] = secret_msg
 
-
-        # store the plaintext secrete message on db 
-        key = b"proofsecrete:" + index
-        with self.env.begin(write=True) as txn:
-            txn.put(key, secret_msg.encode(), db=self.proof_db)
+        with WalletDB() as walletdb:
+            walletdb.WriteSecret(index, secret_msg.encode())
 
         
         # the proof 
@@ -187,17 +178,26 @@ class Wallet(LedgerAPI):
         return proof
 
     def split(self, proofs, amount):
+
+        
+
+
         # get the actual secrete's for each proof.
-        actual_secrets = [self.get_proof_secrete(proof) for proof in proofs]
+        actual_secrets = [self.get_proof_secrete(proof) for proof in context.proofs]
 
 
         fst_proofs, snd_proofs, success, secrets = super().split(proofs, actual_secrets, amount)
 
         if not success:
             return [], [], False
+
+
+        txdb = WalletDB(f_txn=True)
+        txdb.txn_begin()
+
         used_secret_msgs = [p["secret_msg"] for p in proofs]
-        self.proofs = list(filter(lambda p: p["secret_msg"] not in used_secret_msgs, self.proofs))
-        self.proofs += fst_proofs
+        context.proofs = list(filter(lambda p: p["secret_msg"] not in used_secret_msgs, context.proofs))
+        context.proofs += fst_proofs
 
         # As author notes the split function consumes proofs of promise 
         # and creates new promises based on the split amount.
@@ -212,68 +212,51 @@ class Wallet(LedgerAPI):
             # get the actual secrete for proof 
             secrete_plain_text = secrets[proof["secret_msg"]]
             # calculate proof hash 
-            index_ = hashlib.sha256(str(proof).encode()).hexdigest().encode()
+            index = baseutil.Hash(proof).encode()
             # store the proof actual secrete on memory, runtime use. 
-            self.proofs_secrets[index_] = secrete_plain_text
+            context.proofs_secrets[index] = secrete_plain_text
 
             # store proof, and its plain text secrete message on wallet db, for next use. 
-            serialsed = proof_serialize(proof)
-            index = hashlib.sha256(serialsed).hexdigest().encode()
-            key_proof = b"proof:" + index
-            key_proof_plain_secret = b"proofsecrete:" + index_
-            with self.env.begin(write=True) as txn:
-                txn.put(key_proof, serialsed, db=self.proof_db)
-                txn.put(key_proof_plain_secret, secrete_plain_text.encode(), db=self.proof_db) 
+
+            txdb.WriteProof(proof)
+            txdb.WriteSecret(index, secrete_plain_text.encode())
+                
+
 
         # Mark consumed proofs of promise as used. 
         for used_secret in used_secret_msgs:
-            index = hashlib.sha256(used_secret.encode()).hexdigest().encode()
-            key = b"usedproof:" + index
-            with self.env.begin(write=True) as txn:
-                txn.put(key, used_secret.encode(), db=self.proof_db) 
+            index = baseutil.Hash(used_secret).encode()
+            txdb.WriteUsedProof(index, used_secret.encode())
+
+
+        txdb.txn_commit()
 
         return fst_proofs, snd_proofs, True
 
     def balance(self):
-        return sum(p["amount"] for p in self.proofs)
+        return sum(p["amount"] for p in context.proofs)
 
     def status(self):
         print("Balance: {}".format(self.balance()))
 
     def proof_amounts(self):
-        return [p["amount"] for p in sorted(self.proofs, key=lambda p: p["amount"])]
+        return [p["amount"] for p in sorted(context.proofs, key=lambda p: p["amount"])]
+
+    def get_proofs(self):
+        return context.proofs
 
 
     def get_proof_secrete(self, proof):
-        index = hashlib.sha256(str(proof).encode()).hexdigest().encode()
-        if not index in self.proofs_secrets:
+        index = baseutil.Hash(proof).encode()
+        if not index in context.proofs_secrets:
             return False 
-        return self.proofs_secrets[index]
+        return context.proofs_secrets[index]
 
 
-    def load_proofs(self):
-        # load proofs on memory 
-        with self.env.begin() as txn:
-             for key, value in txn.cursor(self.proof_db):
-                index = key.split(b":")
-                if index[0] == b"proof":
-                    # active proof's
-                    constructed_proof = proof_deserialize(value)
-                    self.proofs.append(constructed_proof)
-
-                elif index[0] == b"usedproof":
-                    # used proof's 
-                    self.used_proofs.append(value)
-
-                elif index[0] == b"proofsecrete":
-                    self.proofs_secrets[index[1]] = value
-
-        
-        # remove already used proofs 
-        all_ = self.proofs
-        self.proofs = []
-        for proof in all_:
-            if not proof["secret_msg"].encode() in self.used_proofs:
-                self.proofs.append(proof)
+    def load_wallet(self):
+        # load wallet proofs on memory 
+        wallet_db = CWalletExtDB()
+        if not wallet_db.LoadWallet():
+            return False
 
         return True

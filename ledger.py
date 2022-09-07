@@ -18,7 +18,7 @@ class Ledger:
         self.master_key = secret_key
         self.used_proofs = set()  # no promise proofs have been used
         self.keys = self._derive_keys(self.master_key)
-        self.env = lmdb.open('proofs.lmdb', max_dbs=10)
+        self.env = lmdb.open('ledger.lmdb', max_dbs=10)
         self.used_proof_db = self.env.open_db(b'used_proofs')
 
 
@@ -140,8 +140,6 @@ class Ledger:
 
 
         return self._generate_promises(outs_fst, B_fst), self._generate_promises(outs_snd, B_snd)
-
-
 
 
 
