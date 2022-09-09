@@ -144,6 +144,8 @@ class Ledger:
             index = baseutil.Hash(proof).encode()
             txdb.WriteUsedProof(index, proof.encode())
 
+        txdb.txn_commit()
+
 
 
         return self._generate_promises(outs_fst, B_fst), self._generate_promises(outs_snd, B_snd)
