@@ -1,6 +1,9 @@
 import threading
 
 
+fShutdown = False
+listfThreadRunning = [False] * 10
+fMinter = False
 
 walletLock = threading.RLock()
 proofsLock = threading.RLock()
