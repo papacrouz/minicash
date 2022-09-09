@@ -73,7 +73,7 @@ class CWalletExtDB(WalletDB):
         all_ = context.proofs
         context.proofs = []
         for proof in all_:
-            if not proof["secret_msg"].encode() in context.used_proofs:
+            if not proof["public_key"].encode() in context.used_proofs:
                 context.proofs.append(proof)
 
         return True

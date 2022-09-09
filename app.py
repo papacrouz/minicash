@@ -34,10 +34,9 @@ def split():
     proofs = request.json["proofs"]
     amount = request.json["amount"]
     output_data = request.json["output_data"]
-    proof_secretes = request.json["secrets"]
 
     try:
-        fst_promises, snd_promises = ledger.split(proofs, amount, output_data, proof_secretes)
+        fst_promises, snd_promises = ledger.split(proofs, amount, output_data)
         return {"fst": fst_promises, "snd": snd_promises}
     except Exception as exc:
         return {"error": str(exc)}

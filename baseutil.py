@@ -1,4 +1,6 @@
 import hashlib
+from py_ecc.bls import G2ProofOfPossession
+
 
 __all__ = [
     "singleton", "Singleton", "mutex"
@@ -29,3 +31,4 @@ class Singleton(object):
             orig = super(Singleton, cls)
             cls._instance = orig.__new__(cls, *args, **kw)
         return cls._instance
+

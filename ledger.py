@@ -8,6 +8,8 @@ import hashlib
 
 from ecc.curve import secp256k1, Point
 from ecc.key import gen_keypair
+from py_ecc.bls import G2ProofOfPossession
+
 
 import b_dhke
 import lmdb
@@ -44,11 +46,11 @@ class Ledger:
 
     def _verify_proof(self, proof):
         """Verifies that the proof of promise was issued by this ledger."""
-        if proof["secret_msg"] in self.used_proofs:
-            raise Exception("Already spent. Secret msg:{}".format(proof["secret_msg"]))
+        if proof["public_key"] in self.used_proofs:
+            raise Exception("Already spent. Secret msg:{}".format(proof["public_key"]))
         secret_key = self.keys[proof["amount"]] # Get the correct key to check against
         C = Point(proof["C"]["x"], proof["C"]["y"], secp256k1)
-        return b_dhke.verify(secret_key, C, proof["secret_msg"])
+        return b_dhke.verify(secret_key, C, proof["public_key"])
 
     def _verify_outputs(self, total, amount, output_data):
         """Verifies the expected split was correctly computed"""
@@ -60,8 +62,8 @@ class Ledger:
         return given == expected
     
     def _verify_no_duplicates(self, proofs, output_data):
-        secret_msgs = [p["secret_msg"] for p in proofs]
-        if len(secret_msgs) != len(list(set(secret_msgs))):
+        public_keys = [p["public_key"] for p in proofs]
+        if len(public_keys) != len(list(set(public_keys))):
             return False
         B_xs = [od["B'"]["x"] for od in output_data]
         if len(B_xs) != len(list(set(B_xs))):
@@ -92,7 +94,7 @@ class Ledger:
         # NOTE: This could be implemented that a mint requires a rare pow
         return self._generate_promise(nCoins, B_)
 
-    def split(self, proofs, amount, output_data, secrets):
+    def split(self, proofs, amount, output_data):
         """Consumes proofs and prepares new promises based on the amount split."""
         # Verify proofs are valid
 
@@ -100,16 +102,19 @@ class Ledger:
             return False
 
 
-        # get the hashed secrete msg for each prrof 
-        proof_msgs = set([p["secret_msg"] for p in proofs])
+        # get the public key for each proof 
+        proof_public_keys = set([p["public_key"] for p in proofs])
 
 
-        # does client have the correct secret's ?
-        for secret in secrets:
-            hashed_secrete = hashlib.sha256(secret.encode()).hexdigest()
-            if not hashed_secrete in proof_msgs:
-                raise Exception("Secrete calculation mistatch. Do you know the secrete?.")
-                return False
+        
+        # Anyone can claim that owns a specifiec proof ? Does we have to trust him with a proof ? No.
+        # Verify that the client have provide a proof that he knows the private key associated 
+        # with Consumed proof public key.
+
+        for proof in proofs:
+            if not G2ProofOfPossession.PopVerify(bytes.fromhex(proof["public_key"]), 
+                bytes.fromhex(proof["proof_of_possession"])):
+                raise Exception("Proof of possesion Falied. Do you know the secrete?.")
 
 
         total = sum([p["amount"] for p in proofs])
@@ -122,9 +127,9 @@ class Ledger:
             raise Exception("Split of promises is not as expected.")
 
         # Perform split
-        proof_msgs = set([p["secret_msg"] for p in proofs])
+        proof_public_keys = set([p["public_key"] for p in proofs])
         # Mark proofs as used and prepare new promises
-        self.used_proofs |= proof_msgs
+        self.used_proofs |= proof_public_keys
         outs_fst = self._get_output_split(total-amount)
         outs_snd = self._get_output_split(amount)
         B_fst = [od["B'"] for od in output_data[:len(outs_fst)]]
@@ -132,7 +137,7 @@ class Ledger:
 
         # store used proofs on db 
 
-        for proof in proof_msgs:
+        for proof in proof_public_keys:
             index = hashlib.sha256(proof.encode()).hexdigest().encode()
             key = b"usedproof:" + index
             with self.env.begin(write=True) as txn:
@@ -155,4 +160,6 @@ class Ledger:
 
         used_proofs = set([proof for proof in db_used])
         self.used_proofs |= used_proofs
+
+        print(self.used_proofs)
         return True

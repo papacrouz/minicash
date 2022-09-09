@@ -10,6 +10,8 @@ from proof_util import proof_serialize, proof_deserialize
 import lmdb
 
 from walletdb import WalletDB, CWalletExtDB
+from py_ecc.bls import G2ProofOfPossession
+
 import baseutil
 import context
 
@@ -36,10 +38,10 @@ class LedgerAPI:
                 rv.append(2**pos)
         return rv
     
-    def _construct_proofs(self, promises, secrets):
+    def _construct_proofs(self, promises, public_keys):
         """Returns proofs of promise from promises."""
         proofs = []
-        for promise, (r, secret_msg) in zip(promises, secrets):
+        for promise, (r, public_key) in zip(promises, public_keys):
             C_ = Point(promise["C'"]["x"], promise["C'"]["y"], secp256k1)
             C = b_dhke.step3_bob(C_, r, self.keys[promise["amount"]])
             proofs.append({
@@ -48,25 +50,26 @@ class LedgerAPI:
                     "x": C.x,
                     "y": C.y,
                 },
-                "secret_msg": secret_msg,
+                "public_key": public_key,
             })
         return proofs
 
     def mint(self, nCoins):
         """Mints new coins and returns a proof of promise."""
-        secret_msg = str(random.getrandbits(128))
-        # why does the server needs to store secrete in plaintext ?
-        # server only needs to learn about secrete't only when consume proofs
-        # in order to create new promises.
-        # so hash the secrete before pass it to server.
-        secret_msg_hashed = hashlib.sha256(secret_msg.encode()).hexdigest()
 
-        B_, r = b_dhke.step1_bob(secret_msg_hashed)
+
+        # generate a private key 
+        private_key = random.getrandbits(128)
+        # generate a public key in top of private_key
+        public_key = G2ProofOfPossession.SkToPk(private_key).hex()
+        
+
+        B_, r = b_dhke.step1_bob(public_key)
 
         promise = requests.post(self.url + "/mint", json={"x": str(B_.x), "y": str(B_.y),  "C": str(nCoins)}).json()
-        return self._construct_proofs([promise], [(r, secret_msg_hashed)])[0], secret_msg
+        return self._construct_proofs([promise], [(r, public_key)])[0], private_key
 
-    def split(self, proofs, actual_secrets, amount):
+    def split(self, proofs, amount):
         """Consume proofs and create new promises based on amount split."""
         total = sum([p["amount"] for p in proofs])
         fst_amt, snd_amt = total-amount, amount
@@ -80,15 +83,16 @@ class LedgerAPI:
         output_data = []
         for output_amt in fst_outputs:
             # may we end with new promises here.
-            # Server must not learn about actual secret's.
 
-            secret_msg = str(random.getrandbits(128))
-            # hash the secret
-            secret_msg_hashed = hashlib.sha256(secret_msg.encode()).hexdigest()
+            # generate a private key 
+            private_key = random.getrandbits(128)
+            # generate a public key in top of private_key
+            public_key = G2ProofOfPossession.SkToPk(private_key).hex()
 
-            B_, r = b_dhke.step1_bob(secret_msg_hashed)
 
-            secrets.append((r, secret_msg_hashed))
+            B_, r = b_dhke.step1_bob(public_key)
+
+            secrets.append((r, public_key))
             output_data.append({
                 "amount": output_amt,
                 "B'": {
@@ -99,18 +103,21 @@ class LedgerAPI:
 
 
             # map only our change
-            secretMap[secret_msg_hashed] = secret_msg
+            secretMap[public_key] = private_key
 
 
         for output_amt in snd_outputs:
-    
-            secret_msg = str(random.getrandbits(128))
-            # hash the secret
-            secret_msg_hashed = baseutil.Hash(secret_msg)
 
-            B_, r = b_dhke.step1_bob(secret_msg_hashed)
+            # Todo, reciptien hard coded. 
 
-            secrets.append((r, secret_msg_hashed))
+            # generate a private key 
+            private_key = random.getrandbits(128)
+            # generate a public key in top of private_key
+            public_key = G2ProofOfPossession.SkToPk(private_key).hex()
+
+            B_, r = b_dhke.step1_bob(public_key)
+
+            secrets.append((r, public_key))
             output_data.append({
                 "amount": output_amt,
                 "B'": {
@@ -124,9 +131,7 @@ class LedgerAPI:
         promises = requests.post(self.url + "/split", json={
             "proofs": proofs, 
             "amount": amount, 
-            "output_data": output_data, 
-            "secrets": actual_secrets}
-        ).json()
+            "output_data": output_data}).json()
         
 
         if "error" in promises:
@@ -148,7 +153,7 @@ class Wallet(LedgerAPI):
        
 
     def mint(self, nCoins=64):
-        proof, secret_msg = super().mint(nCoins)
+        proof, private_key = super().mint(nCoins)
 
         # add proof on memory, runtime.
         context.proofs.append(proof)
@@ -166,11 +171,11 @@ class Wallet(LedgerAPI):
         index = baseutil.Hash(proof).encode()
 
 
-        # store the plaintext secrete message on memory 
-        context.proofs_secrets[index] = secret_msg
+        # store the plaintext privatekey on memory 
+        context.proofs_secrets[index] = private_key
 
         with WalletDB() as walletdb:
-            walletdb.WriteSecret(index, secret_msg.encode())
+            walletdb.WriteSecret(index, str(private_key).encode())
 
         
         # the proof 
@@ -179,14 +184,20 @@ class Wallet(LedgerAPI):
 
     def split(self, proofs, amount):
 
+        for proof in proofs:
+            priv_key = self.get_proof_secrete(proof)
+
+            # build a proof that we own the private key 
+            # associated with the public key attached on proof 
+            op_proof = G2ProofOfPossession.PopProve(int(priv_key))
+            # be sure that the proof is valid 
+            assert(G2ProofOfPossession.PopVerify(bytes.fromhex(proof["public_key"]), op_proof))
+            # attach the proof of key ownership on actual proof.
+            proof["proof_of_possession"] = op_proof.hex()
         
 
 
-        # get the actual secrete's for each proof.
-        actual_secrets = [self.get_proof_secrete(proof) for proof in context.proofs]
-
-
-        fst_proofs, snd_proofs, success, secrets = super().split(proofs, actual_secrets, amount)
+        fst_proofs, snd_proofs, success, private_keys = super().split(proofs, amount)
 
         if not success:
             return [], [], False
@@ -195,8 +206,8 @@ class Wallet(LedgerAPI):
         txdb = WalletDB(f_txn=True)
         txdb.txn_begin()
 
-        used_secret_msgs = [p["secret_msg"] for p in proofs]
-        context.proofs = list(filter(lambda p: p["secret_msg"] not in used_secret_msgs, context.proofs))
+        used_secret_msgs = [p["public_key"] for p in proofs]
+        context.proofs = list(filter(lambda p: p["public_key"] not in used_secret_msgs, context.proofs))
         context.proofs += fst_proofs
 
         # As author notes the split function consumes proofs of promise 
@@ -207,19 +218,19 @@ class Wallet(LedgerAPI):
         # After a split we may end with a new proof of promise's
         # store new proofs of promise's on db.
         for proof in fst_proofs:
-            # be sure that we have the actual secrete
-            assert(proof["secret_msg"] in secrets)
-            # get the actual secrete for proof 
-            secrete_plain_text = secrets[proof["secret_msg"]]
+            # be sure that we have the private key
+            assert(proof["public_key"] in private_keys)
+            # get the actual private key for proof 
+            private_key = private_keys[proof["public_key"]]
             # calculate proof hash 
             index = baseutil.Hash(proof).encode()
             # store the proof actual secrete on memory, runtime use. 
-            context.proofs_secrets[index] = secrete_plain_text
+            context.proofs_secrets[index] = private_key
 
             # store proof, and its plain text secrete message on wallet db, for next use. 
 
             txdb.WriteProof(proof)
-            txdb.WriteSecret(index, secrete_plain_text.encode())
+            txdb.WriteSecret(index, str(private_key).encode())
                 
 
 
