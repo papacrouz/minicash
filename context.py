@@ -7,12 +7,15 @@ fMinter = False
 
 walletLock = threading.RLock()
 proofsLock = threading.RLock()
-ledgerLock = threading.RLock()
 
-proofs = []
-used_proofs = []
-proofs_secrets = {}
+
+# wallet 
+wallet_proofs = []
+wallet_used_proofs = []
+wallet_proofs_keys = {}
 
 
 # ledger 
 ledger_used_proofs = set()
+ledgerLock = threading.RLock()
+

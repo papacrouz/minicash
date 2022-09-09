@@ -1,10 +1,15 @@
+import binascii
 import hashlib
-from py_ecc.bls import G2ProofOfPossession
 
 
 __all__ = [
     "singleton", "Singleton", "mutex"
 ]
+
+
+
+hexlify = binascii.hexlify  
+unhexlify = binascii.unhexlify
 
 
 

@@ -1,3 +1,4 @@
+#!/usr/bin/env python
 
 import context
 import db 
@@ -13,6 +14,8 @@ class LedgerDB(db.CDB):
         key = self.DBKEY_USEDPROOF + index
         value = proof
         return self._write(key, value)
+
+    
 
 
 

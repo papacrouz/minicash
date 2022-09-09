@@ -9,6 +9,7 @@ wallet = Wallet(SERVER_ENDPOINT)
 
 # load proofs from database in memory  
 wallet.load_wallet()
+wallet.mint(16)
 
 # Check wallet from proofs, that match the 
 # amount that we want to promise 

@@ -1,4 +1,6 @@
-# Don't trust me with cryptography.
+#!/usr/bin/env python
+
+# Don't trust me with cryptography. Ok.
 
 """
 Implementation of https://gist.github.com/phyro/935badc682057f418842c72961cf096c

@@ -1,4 +1,6 @@
-# Don't trust me with cryptography.
+#!/usr/bin/env python
+
+# Don't trust me with cryptography. Ok.
 
 import random
 import hashlib
@@ -10,10 +12,10 @@ from proof_util import proof_serialize, proof_deserialize
 import lmdb
 
 from walletdb import WalletDB, CWalletExtDB
-from py_ecc.bls import G2ProofOfPossession
 
 import baseutil
 import context
+from key import CKey
 
 class LedgerAPI:
     def __init__(self, url):
@@ -54,20 +56,13 @@ class LedgerAPI:
             })
         return proofs
 
-    def mint(self, nCoins):
+    def mint(self, nCoins, key):
         """Mints new coins and returns a proof of promise."""
 
-
-        # generate a private key 
-        private_key = random.getrandbits(128)
-        # generate a public key in top of private_key
-        public_key = G2ProofOfPossession.SkToPk(private_key).hex()
-        
-
-        B_, r = b_dhke.step1_bob(public_key)
+        B_, r = b_dhke.step1_bob(key.GetPubKey())
 
         promise = requests.post(self.url + "/mint", json={"x": str(B_.x), "y": str(B_.y),  "C": str(nCoins)}).json()
-        return self._construct_proofs([promise], [(r, public_key)])[0], private_key
+        return self._construct_proofs([promise], [(r, key.GetPubKey())])[0]
 
     def split(self, proofs, amount):
         """Consume proofs and create new promises based on amount split."""
@@ -77,22 +72,26 @@ class LedgerAPI:
         snd_outputs = self._get_output_split(snd_amt)
 
 
-        secretMap = {} # hashed -> actual 
+        keysMap = {} # public key -> private key 
 
-        secrets = []
+        public_keys = []
         output_data = []
         for output_amt in fst_outputs:
+
             # may we end with new promises here.
 
-            # generate a private key 
-            private_key = random.getrandbits(128)
-            # generate a public key in top of private_key
-            public_key = G2ProofOfPossession.SkToPk(private_key).hex()
+            # generate a key 
+
+            key = CKey()
+            key.MakeNewKey()
+
+            private_key = key.GetPrivateKey()
+            public_key = key.GetPubKey()
 
 
             B_, r = b_dhke.step1_bob(public_key)
 
-            secrets.append((r, public_key))
+            public_keys.append((r, public_key))
             output_data.append({
                 "amount": output_amt,
                 "B'": {
@@ -103,21 +102,22 @@ class LedgerAPI:
 
 
             # map only our change
-            secretMap[public_key] = private_key
+            keysMap[public_key] = private_key
 
 
         for output_amt in snd_outputs:
 
             # Todo, reciptien hard coded. 
 
-            # generate a private key 
-            private_key = random.getrandbits(128)
-            # generate a public key in top of private_key
-            public_key = G2ProofOfPossession.SkToPk(private_key).hex()
+            key = CKey()
+            key.MakeNewKey()
+
+            private_key = key.GetPrivateKey()
+            public_key = key.GetPubKey()
 
             B_, r = b_dhke.step1_bob(public_key)
 
-            secrets.append((r, public_key))
+            public_keys.append((r, public_key))
             output_data.append({
                 "amount": output_amt,
                 "B'": {
@@ -139,10 +139,10 @@ class LedgerAPI:
             return [], [], False, False
 
         # Obtain proofs from promises
-        fst_proofs = self._construct_proofs(promises["fst"], secrets[:len(promises["fst"])])
-        snd_proofs = self._construct_proofs(promises["snd"], secrets[len(promises["fst"]):])
+        fst_proofs = self._construct_proofs(promises["fst"], public_keys[:len(promises["fst"])])
+        snd_proofs = self._construct_proofs(promises["snd"], public_keys[len(promises["fst"]):])
 
-        return fst_proofs, snd_proofs, True, secretMap
+        return fst_proofs, snd_proofs, True, keysMap
 
 
 class Wallet(LedgerAPI):
@@ -153,29 +153,43 @@ class Wallet(LedgerAPI):
        
 
     def mint(self, nCoins=64):
-        proof, private_key = super().mint(nCoins)
-
-        # add proof on memory, runtime.
-        context.proofs.append(proof)
 
 
+        # generate a key 
+        key = CKey()
+        key.MakeNewKey()
+
+        # mint a proof 
+        proof = super().mint(nCoins, key)
+
+        # add proof on memory, for runtime use.
+        context.wallet_proofs.append(proof)
+
+
+
+        # store the proof on wallet db, for next use.
         with WalletDB() as walletdb:
             walletdb.WriteProof(proof)
 
 
-
-        # the proof of promise received by the server, cointains the secrete message hashed.
-        # so when when we want to split the newly mint proof, we have to provide a pattern than 
-        # hash to proof secrete message.
-
+        # Each proof of promise, cointains a public key.
+        # so when when we want to split the newly mint proof, 
+        # we have to provide a proof that we own the private key 
+        # associated with the proof public key  
+        
+        
+        # Calculate proof hash.
         index = baseutil.Hash(proof).encode()
 
 
-        # store the plaintext privatekey on memory 
-        context.proofs_secrets[index] = private_key
-
+        # store the plaintext privatekey on memory, for runtime use.
+        # proof hash -> private key  
+        context.wallet_proofs_keys[index] = key.GetPrivateKey()
+        
+        # store the proof private key on wallet db, for next use.
+        # proof hash -> private key
         with WalletDB() as walletdb:
-            walletdb.WriteSecret(index, str(private_key).encode())
+            walletdb.WriteSecret(index, str(key.GetPrivateKey()).encode())
 
         
         # the proof 
@@ -184,16 +198,20 @@ class Wallet(LedgerAPI):
 
     def split(self, proofs, amount):
 
+        # consumes proofs of promise
+
         for proof in proofs:
+            # get the private key associated with proof 
             priv_key = self.get_proof_secrete(proof)
 
-            # build a proof that we own the private key 
-            # associated with the public key attached on proof 
-            op_proof = G2ProofOfPossession.PopProve(int(priv_key))
+            key = CKey()
+            key.set_privkey(priv_key)
+            # build a proof that we own the private key associated with proof public key
+            proof_of_possession = key.MakeProof()
             # be sure that the proof is valid 
-            assert(G2ProofOfPossession.PopVerify(bytes.fromhex(proof["public_key"]), op_proof))
-            # attach the proof of key ownership on actual proof.
-            proof["proof_of_possession"] = op_proof.hex()
+            assert(key.ProofVerify(proof, proof_of_possession))
+            # attach the proof of possession of key ownership on actual proof.
+            proof["proof_of_possession"] = proof_of_possession.hex()
         
 
 
@@ -207,8 +225,8 @@ class Wallet(LedgerAPI):
         txdb.txn_begin()
 
         used_secret_msgs = [p["public_key"] for p in proofs]
-        context.proofs = list(filter(lambda p: p["public_key"] not in used_secret_msgs, context.proofs))
-        context.proofs += fst_proofs
+        context.wallet_proofs = list(filter(lambda p: p["public_key"] not in used_secret_msgs, context.wallet_proofs))
+        context.wallet_proofs += fst_proofs
 
         # As author notes the split function consumes proofs of promise 
         # and creates new promises based on the split amount.
@@ -225,9 +243,9 @@ class Wallet(LedgerAPI):
             # calculate proof hash 
             index = baseutil.Hash(proof).encode()
             # store the proof actual secrete on memory, runtime use. 
-            context.proofs_secrets[index] = private_key
+            context.wallet_proofs_keys[index] = private_key
 
-            # store proof, and its plain text secrete message on wallet db, for next use. 
+            # store proof, and its plain text private key on wallet db, for next use. 
 
             txdb.WriteProof(proof)
             txdb.WriteSecret(index, str(private_key).encode())
@@ -245,23 +263,23 @@ class Wallet(LedgerAPI):
         return fst_proofs, snd_proofs, True
 
     def balance(self):
-        return sum(p["amount"] for p in context.proofs)
+        return sum(p["amount"] for p in context.wallet_proofs)
 
     def status(self):
         print("Balance: {}".format(self.balance()))
 
     def proof_amounts(self):
-        return [p["amount"] for p in sorted(context.proofs, key=lambda p: p["amount"])]
+        return [p["amount"] for p in sorted(context.wallet_proofs, key=lambda p: p["amount"])]
 
     def get_proofs(self):
-        return context.proofs
+        return context.wallet_proofs
 
 
     def get_proof_secrete(self, proof):
         index = baseutil.Hash(proof).encode()
-        if not index in context.proofs_secrets:
+        if not index in context.wallet_proofs_keys:
             return False 
-        return context.proofs_secrets[index]
+        return context.wallet_proofs_keys[index]
 
 
     def load_wallet(self):

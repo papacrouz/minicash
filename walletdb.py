@@ -1,3 +1,6 @@
+#!/usr/bin/env python
+
+
 import db
 
 import context
@@ -58,22 +61,22 @@ class CWalletExtDB(WalletDB):
                 if index[0] == b"proof":
                     # active proof's
                     constructed_proof = proof_deserialize(value)
-                    context.proofs.append(constructed_proof)
+                    context.wallet_proofs.append(constructed_proof)
 
                 elif index[0] == b"usedproof":
                     # used proof's 
-                    context.used_proofs.append(value)
+                    context.wallet_used_proofs.append(value)
 
                 elif index[0] == b"proofsecrete":
-                    context.proofs_secrets[index[1]] = value
+                    context.wallet_proofs_keys[index[1]] = value
         self.close()
 
 
         
-        all_ = context.proofs
-        context.proofs = []
+        all_ = context.wallet_proofs
+        context.wallet_proofs = []
         for proof in all_:
-            if not proof["public_key"].encode() in context.used_proofs:
-                context.proofs.append(proof)
+            if not proof["public_key"].encode() in context.wallet_used_proofs:
+                context.wallet_proofs.append(proof)
 
         return True
