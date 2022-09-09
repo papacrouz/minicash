@@ -208,10 +208,10 @@ class Wallet(LedgerAPI):
             key.set_privkey(priv_key)
             # build a proof that we own the private key associated with proof public key
             proof_of_possession = key.MakeProof()
-            # be sure that the proof is valid 
-            assert(key.ProofVerify(proof, proof_of_possession))
             # attach the proof of possession of key ownership on actual proof.
             proof["proof_of_possession"] = proof_of_possession.hex()
+            # be sure that the proof is valid 
+            assert(key.ProofVerify(proof))
         
 
 

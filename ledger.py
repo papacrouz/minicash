@@ -17,6 +17,7 @@ import b_dhke
 import context
 import baseutil
 import lmdb
+from key import CKey
 
 
 class Ledger:
@@ -34,6 +35,7 @@ class Ledger:
             for i in range(20)
         }
 
+
     def _generate_promises(self, amounts, B_s):
         """Generates promises that sum to the given amount."""
         return [
@@ -41,10 +43,12 @@ class Ledger:
             for (amount, B_) in zip(amounts, B_s)
         ]
 
+
     def _generate_promise(self, amount, B_):
         """Generates a promise for given amount and returns a pair (amount, C')."""
         secret_key = self.keys[amount] # Get the correct key
         return {"amount": amount, "C'": b_dhke.step2_alice(B_, secret_key)}
+
 
     def _verify_proof(self, proof):
         """Verifies that the proof of promise was issued by this ledger."""
@@ -53,6 +57,7 @@ class Ledger:
         secret_key = self.keys[proof["amount"]] # Get the correct key to check against
         C = Point(proof["C"]["x"], proof["C"]["y"], secp256k1)
         return b_dhke.verify(secret_key, C, proof["public_key"])
+
 
     def _verify_outputs(self, total, amount, output_data):
         """Verifies the expected split was correctly computed"""
@@ -63,6 +68,7 @@ class Ledger:
         given = [o["amount"] for o in output_data]
         return given == expected
     
+
     def _verify_no_duplicates(self, proofs, output_data):
         public_keys = [p["public_key"] for p in proofs]
         if len(public_keys) != len(list(set(public_keys))):
@@ -71,6 +77,7 @@ class Ledger:
         if len(B_xs) != len(list(set(B_xs))):
             return False
         return True
+
 
     @staticmethod
     def _get_output_split(amount):
@@ -91,11 +98,13 @@ class Ledger:
             for amt in [2**i for i in range(20)]
         }
 
+
     def mint(self, B_, nCoins):
         """Mints a promise for nCoins coins for B_."""
         # NOTE: This could be implemented that a mint requires a rare pow
         return self._generate_promise(nCoins, B_)
 
+        
     def split(self, proofs, amount, output_data):
         """Consumes proofs and prepares new promises based on the amount split."""
         # Verify proofs are valid
@@ -113,9 +122,11 @@ class Ledger:
         # Verify that the client have provide a proof that he knows the private key associated 
         # with Consumed proof public key.
 
+
+        key = CKey()
+
         for proof in proofs:
-            if not G2ProofOfPossession.PopVerify(bytes.fromhex(proof["public_key"]), 
-                bytes.fromhex(proof["proof_of_possession"])):
+            if not key.ProofVerify(proof):
                 raise Exception("Proof of possesion Falied. Do you know the secrete?.")
 
 

@@ -39,6 +39,7 @@ class CKey:
         return G2ProofOfPossession.PopProve(int(self._private_key))
 
 
-    def ProofVerify(self, proof, proof_of_possession):
-        return G2ProofOfPossession.PopVerify(bytes.fromhex(proof["public_key"]), proof_of_possession)
+    def ProofVerify(self, proof):
+        return G2ProofOfPossession.PopVerify(bytes.fromhex(proof["public_key"]), 
+            bytes.fromhex(proof["proof_of_possession"]))
 
