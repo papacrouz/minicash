@@ -13,7 +13,7 @@ import baseutil
 class WalletDB(db.CDB):
     DBKEY_PROOF = b"proof:"
     DBKEY_USEDPROOF = b"usedproof:"
-    DBKEY_SECRETPROOF = B"proofsecrete:"
+    DBKEY_SECRETPROOF = b"proofsecrete:"
 
     def __init__(self, f_txn=False):
         super(WalletDB, self).__init__("wallet", f_txn)
