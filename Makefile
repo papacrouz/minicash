@@ -6,5 +6,5 @@ help:
 
 clean:
 	find . -type d -name __pycache__ -exec rm -r {} \+
-	rm -rf wallet.lmdb
-	rm -rf proofs.lmdb
+	rm -rf ledger.lmdb
+	rm -rf main.lmdb

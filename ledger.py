@@ -1,4 +1,6 @@
-# Don't trust me with cryptography.
+#!/usr/bin/env python
+
+# Don't trust me with cryptography. Ok.
 
 """
 Implementation of https://gist.github.com/phyro/935badc682057f418842c72961cf096c
@@ -8,18 +10,21 @@ import hashlib
 
 from ecc.curve import secp256k1, Point
 from ecc.key import gen_keypair
+from py_ecc.bls import G2ProofOfPossession
+from ledgerdb import LedgerDB, CLedgerExtDB
 
 import b_dhke
+import context
+import baseutil
 import lmdb
+from key import CKey
 
 
 class Ledger:
     def __init__(self, secret_key):
         self.master_key = secret_key
-        self.used_proofs = set()  # no promise proofs have been used
         self.keys = self._derive_keys(self.master_key)
-        self.env = lmdb.open('proofs.lmdb', max_dbs=10)
-        self.used_proof_db = self.env.open_db(b'used_proofs')
+        
 
 
     @staticmethod
@@ -30,6 +35,7 @@ class Ledger:
             for i in range(20)
         }
 
+
     def _generate_promises(self, amounts, B_s):
         """Generates promises that sum to the given amount."""
         return [
@@ -37,18 +43,21 @@ class Ledger:
             for (amount, B_) in zip(amounts, B_s)
         ]
 
+
     def _generate_promise(self, amount, B_):
         """Generates a promise for given amount and returns a pair (amount, C')."""
         secret_key = self.keys[amount] # Get the correct key
         return {"amount": amount, "C'": b_dhke.step2_alice(B_, secret_key)}
 
+
     def _verify_proof(self, proof):
         """Verifies that the proof of promise was issued by this ledger."""
-        if proof["secret_msg"] in self.used_proofs:
-            raise Exception("Already spent. Secret msg:{}".format(proof["secret_msg"]))
+        if proof["public_key"] in context.ledger_used_proofs:
+            raise Exception("Already spent. Secret msg:{}".format(proof["public_key"]))
         secret_key = self.keys[proof["amount"]] # Get the correct key to check against
         C = Point(proof["C"]["x"], proof["C"]["y"], secp256k1)
-        return b_dhke.verify(secret_key, C, proof["secret_msg"])
+        return b_dhke.verify(secret_key, C, proof["public_key"])
+
 
     def _verify_outputs(self, total, amount, output_data):
         """Verifies the expected split was correctly computed"""
@@ -59,14 +68,16 @@ class Ledger:
         given = [o["amount"] for o in output_data]
         return given == expected
     
+
     def _verify_no_duplicates(self, proofs, output_data):
-        secret_msgs = [p["secret_msg"] for p in proofs]
-        if len(secret_msgs) != len(list(set(secret_msgs))):
+        public_keys = [p["public_key"] for p in proofs]
+        if len(public_keys) != len(list(set(public_keys))):
             return False
         B_xs = [od["B'"]["x"] for od in output_data]
         if len(B_xs) != len(list(set(B_xs))):
             return False
         return True
+
 
     @staticmethod
     def _get_output_split(amount):
@@ -87,12 +98,14 @@ class Ledger:
             for amt in [2**i for i in range(20)]
         }
 
+
     def mint(self, B_, nCoins):
         """Mints a promise for nCoins coins for B_."""
         # NOTE: This could be implemented that a mint requires a rare pow
         return self._generate_promise(nCoins, B_)
 
-    def split(self, proofs, amount, output_data, secrets):
+        
+    def split(self, proofs, amount, output_data):
         """Consumes proofs and prepares new promises based on the amount split."""
         # Verify proofs are valid
 
@@ -100,16 +113,21 @@ class Ledger:
             return False
 
 
-        # get the hashed secrete msg for each prrof 
-        proof_msgs = set([p["secret_msg"] for p in proofs])
+        # get the public key for each proof 
+        proof_public_keys = set([p["public_key"] for p in proofs])
 
 
-        # does client have the correct secret's ?
-        for secret in secrets:
-            hashed_secrete = hashlib.sha256(secret.encode()).hexdigest()
-            if not hashed_secrete in proof_msgs:
-                raise Exception("Secrete calculation mistatch. Do you know the secrete?.")
-                return False
+        
+        # Anyone can claim that owns a specifiec proof ? Does we have to trust him with a proof ? No.
+        # Verify that the client have provide a proof that he knows the private key associated 
+        # with Consumed proof public key.
+
+
+        key = CKey()
+
+        for proof in proofs:
+            if not key.ProofVerify(proof):
+                raise Exception("Proof of possesion Falied. Do you know the secrete?.")
 
 
         total = sum([p["amount"] for p in proofs])
@@ -122,9 +140,9 @@ class Ledger:
             raise Exception("Split of promises is not as expected.")
 
         # Perform split
-        proof_msgs = set([p["secret_msg"] for p in proofs])
+        proof_public_keys = set([p["public_key"] for p in proofs])
         # Mark proofs as used and prepare new promises
-        self.used_proofs |= proof_msgs
+        context.ledger_used_proofs |= proof_public_keys
         outs_fst = self._get_output_split(total-amount)
         outs_snd = self._get_output_split(amount)
         B_fst = [od["B'"] for od in output_data[:len(outs_fst)]]
@@ -132,11 +150,15 @@ class Ledger:
 
         # store used proofs on db 
 
-        for proof in proof_msgs:
-            index = hashlib.sha256(proof.encode()).hexdigest().encode()
-            key = b"usedproof:" + index
-            with self.env.begin(write=True) as txn:
-                txn.put(key, proof.encode(), db=self.used_proof_db)
+        txdb = LedgerDB(f_txn=True)
+        txdb.txn_begin()
+
+        for proof in proof_public_keys:
+            index = baseutil.Hash(proof).encode()
+            txdb.WriteUsedProof(index, proof.encode())
+
+        txdb.txn_commit()
+
 
 
         return self._generate_promises(outs_fst, B_fst), self._generate_promises(outs_snd, B_snd)
@@ -144,17 +166,9 @@ class Ledger:
 
 
 
-
-
     def load_ledger(self):
         # load used proofs on memory 
-        db_used = []
-        with self.env.begin() as txn:
-             for key, value in txn.cursor(self.used_proof_db):
-                index = key.split(b":")
-                if index[0] == b"usedproof":
-                    db_used.append(value.decode())
-
-        used_proofs = set([proof for proof in db_used])
-        self.used_proofs |= used_proofs
+        ledger_db = CLedgerExtDB()
+        if not ledger_db.LoadLedger():
+            return False
         return True

@@ -1,6 +1,7 @@
 # Don't trust me with cryptography.
 
 import hashlib
+import context
 
 from ecc.curve import secp256k1, Point
 from flask import Flask, request
@@ -10,9 +11,6 @@ from ledger import Ledger
 # Ledger pubkey
 ledger = Ledger("supersecretprivatekey")
 ledger.load_ledger()
-
-if len(ledger.used_proofs) > 0:
-    print("{} used proofs loaded from ledger db".format(len(ledger.used_proofs)))
 
 app = Flask(__name__)
 
@@ -34,10 +32,9 @@ def split():
     proofs = request.json["proofs"]
     amount = request.json["amount"]
     output_data = request.json["output_data"]
-    proof_secretes = request.json["secrets"]
 
     try:
-        fst_promises, snd_promises = ledger.split(proofs, amount, output_data, proof_secretes)
+        fst_promises, snd_promises = ledger.split(proofs, amount, output_data)
         return {"fst": fst_promises, "snd": snd_promises}
     except Exception as exc:
         return {"error": str(exc)}
