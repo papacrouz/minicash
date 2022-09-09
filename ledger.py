@@ -9,19 +9,19 @@ import hashlib
 from ecc.curve import secp256k1, Point
 from ecc.key import gen_keypair
 from py_ecc.bls import G2ProofOfPossession
-
+from ledgerdb import LedgerDB, CLedgerExtDB
 
 import b_dhke
+import context
+import baseutil
 import lmdb
 
 
 class Ledger:
     def __init__(self, secret_key):
         self.master_key = secret_key
-        self.used_proofs = set()  # no promise proofs have been used
         self.keys = self._derive_keys(self.master_key)
-        self.env = lmdb.open('ledger.lmdb', max_dbs=10)
-        self.used_proof_db = self.env.open_db(b'used_proofs')
+        
 
 
     @staticmethod
@@ -46,7 +46,7 @@ class Ledger:
 
     def _verify_proof(self, proof):
         """Verifies that the proof of promise was issued by this ledger."""
-        if proof["public_key"] in self.used_proofs:
+        if proof["public_key"] in context.ledger_used_proofs:
             raise Exception("Already spent. Secret msg:{}".format(proof["public_key"]))
         secret_key = self.keys[proof["amount"]] # Get the correct key to check against
         C = Point(proof["C"]["x"], proof["C"]["y"], secp256k1)
@@ -129,7 +129,7 @@ class Ledger:
         # Perform split
         proof_public_keys = set([p["public_key"] for p in proofs])
         # Mark proofs as used and prepare new promises
-        self.used_proofs |= proof_public_keys
+        context.ledger_used_proofs |= proof_public_keys
         outs_fst = self._get_output_split(total-amount)
         outs_snd = self._get_output_split(amount)
         B_fst = [od["B'"] for od in output_data[:len(outs_fst)]]
@@ -137,11 +137,13 @@ class Ledger:
 
         # store used proofs on db 
 
+        txdb = LedgerDB(f_txn=True)
+        txdb.txn_begin()
+
         for proof in proof_public_keys:
-            index = hashlib.sha256(proof.encode()).hexdigest().encode()
-            key = b"usedproof:" + index
-            with self.env.begin(write=True) as txn:
-                txn.put(key, proof.encode(), db=self.used_proof_db)
+            index = baseutil.Hash(proof).encode()
+            txdb.WriteUsedProof(index, proof.encode())
+
 
 
         return self._generate_promises(outs_fst, B_fst), self._generate_promises(outs_snd, B_snd)
@@ -151,15 +153,7 @@ class Ledger:
 
     def load_ledger(self):
         # load used proofs on memory 
-        db_used = []
-        with self.env.begin() as txn:
-             for key, value in txn.cursor(self.used_proof_db):
-                index = key.split(b":")
-                if index[0] == b"usedproof":
-                    db_used.append(value.decode())
-
-        used_proofs = set([proof for proof in db_used])
-        self.used_proofs |= used_proofs
-
-        print(self.used_proofs)
+        ledger_db = CLedgerExtDB()
+        if not ledger_db.LoadLedger():
+            return False
         return True
