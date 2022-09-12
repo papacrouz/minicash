@@ -4,7 +4,7 @@ import sys
 
 from app import context 
 import app.wallet.action as walletaction
-
+import app.ledger.action as ledgeraction 
 import app.key.action as keyaction 
 
 
@@ -20,4 +20,4 @@ print(walletaction.SellectProofs(38))
 
 print(keyaction.GenerateNewKey())
 
-print(context.mapKeys)
+print(ledgeraction.LoadLedger())

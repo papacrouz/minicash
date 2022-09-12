@@ -1,26 +1,23 @@
-#!/usr/bin/env python
+from app.ledger import ledgerdb as db
 
-import context
-import db 
-
-class LedgerDB(db.CDB):
-    DBKEY_USEDPROOF = b"usedproof:"
-
-    def __init__(self, f_txn=False):
-        super(LedgerDB, self).__init__("ledger", f_txn)
-
-
-    def WriteUsedProof(self, index, proof):
-        key = self.DBKEY_USEDPROOF + index
-        value = proof
-        return self._write(key, value)
-
-    
+from app import (
+    context
+)
 
 
 
 
-class CLedgerExtDB(LedgerDB):
+
+
+def LoadLedger():
+    # load used proofs on memory 
+    ledger_db = CLedgerExtDB()
+    if not ledger_db.LoadLedger():
+        return False
+    return True
+
+
+class CLedgerExtDB(db.LedgerDB):
     def __init__(self, f_txn=False):
         super(CLedgerExtDB, self).__init__(f_txn)
 

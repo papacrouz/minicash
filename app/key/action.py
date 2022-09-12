@@ -18,7 +18,7 @@ def AddKey(key):
 	return True
 
 
-def GenerateNewKey(fStore=False):
+def GenerateNewKey():
 	key = CKey()
 	key.MakeNewKey()
 

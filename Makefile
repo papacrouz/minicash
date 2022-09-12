@@ -8,4 +8,4 @@ clean:
 	find . -type d -name __pycache__ -exec rm -r {} \+
 	rm -rf ledger.lmdb
 	rm -rf main.lmdb
-        rm -rf debug.log
+	rm -rf debug.log
