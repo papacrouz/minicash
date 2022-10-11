@@ -54,7 +54,7 @@ def GetAppDir():
     if not platform == "linux":
         if not platform == "linux2":
             sys.exit(logg("Error: Unsupported platform"))
-    return expanduser("~") + "/" + ".stater"
+    return expanduser("~") + "/" + ".minicash"
 
 
 def singleton(cls, *args, **kw):

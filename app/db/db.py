@@ -41,15 +41,17 @@ class CDBInit(Singleton):
     f_db_env = False
 
     def __init__(self):
-        """
-        if not os.path.exists(GetAppDir()):
-            try:
-                os.mkdir(GetAppDir())
-            except Exception as e:
-                raise RuntimeError('CDBInit() : Initialize empty data dir failed')
-        """
 
-        self.dbenv = lmdb.open('./main.lmdb', 
+
+        appDir = GetAppDir()
+
+        if not os.path.exists(appDir):
+            try:
+                os.mkdir(appDir)
+            except Exception as e:
+                raise RuntimeError('CDBInit() : Initialize data directory failed')
+        
+        self.dbenv = lmdb.open(appDir + '/main.lmdb', 
             map_size=int(1e8),
             max_dbs=2, 
             writemap=True, 
